@@ -20,6 +20,9 @@ if TYPE_CHECKING:
     from cv2.typing import MatLike
 
 CHANNEL_ID = 'DISCORD_WEBHOOK'
+
+# 預設頭像：一條龍的應用圖示，放在本插件 GitHub 倉庫的 assets/avatar.png。
+DEFAULT_AVATAR_URL = 'https://raw.githubusercontent.com/moonlight0XD/zzzod-discord-push/main/assets/avatar.png'
 _PATCH_MARK = '_od_discord_webhook_patch_original_init'
 
 
@@ -47,7 +50,7 @@ class DiscordWebhook(PushChannel):
                 title='頭像網址',
                 icon='PHOTO',
                 field_type=FieldTypeEnum.TEXT,
-                placeholder='選填，留空則使用 Webhook 自己的頭像',
+                placeholder='選填，留空則使用一條龍的應用圖示',
             ),
         ]
         PushChannel.__init__(
@@ -101,9 +104,7 @@ class DiscordWebhook(PushChannel):
             username = config.get('USERNAME', '').strip()
             if username:
                 payload['username'] = username
-            avatar_url = config.get('AVATAR_URL', '').strip()
-            if avatar_url:
-                payload['avatar_url'] = avatar_url
+            payload['avatar_url'] = config.get('AVATAR_URL', '').strip() or DEFAULT_AVATAR_URL
 
             headers = {'User-Agent': 'OneDragon'}
             if image_data is not None:
