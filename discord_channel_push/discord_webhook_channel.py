@@ -20,12 +20,6 @@ if TYPE_CHECKING:
     from cv2.typing import MatLike
 
 CHANNEL_ID = 'DISCORD_WEBHOOK'
-
-# 一條龍的應用圖示（assets/ui/logo.ico）。Discord 頭像不支援 .ico，經 wsrv.nl 轉成 PNG。
-DEFAULT_AVATAR_URL = (
-    'https://wsrv.nl/?url=raw.githubusercontent.com/OneDragon-Anything/'
-    'ZenlessZoneZero-OneDragon/main/assets/ui/logo.ico&output=png'
-)
 _PATCH_MARK = '_od_discord_webhook_patch_original_init'
 
 
@@ -53,8 +47,7 @@ class DiscordWebhook(PushChannel):
                 title='頭像網址',
                 icon='PHOTO',
                 field_type=FieldTypeEnum.TEXT,
-                placeholder='選填，留空則使用一條龍的應用圖示',
-                default=DEFAULT_AVATAR_URL,
+                placeholder='選填，留空則使用 Webhook 自己的頭像',
             ),
         ]
         PushChannel.__init__(
@@ -108,7 +101,9 @@ class DiscordWebhook(PushChannel):
             username = config.get('USERNAME', '').strip()
             if username:
                 payload['username'] = username
-            payload['avatar_url'] = config.get('AVATAR_URL', '').strip() or DEFAULT_AVATAR_URL
+            avatar_url = config.get('AVATAR_URL', '').strip()
+            if avatar_url:
+                payload['avatar_url'] = avatar_url
 
             headers = {'User-Agent': 'OneDragon'}
             if image_data is not None:
