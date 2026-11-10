@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import TYPE_CHECKING
 
 import requests
@@ -20,6 +21,12 @@ if TYPE_CHECKING:
     from cv2.typing import MatLike
 
 CHANNEL_ID = 'DISCORD_WEBHOOK'
+
+# Discord 卡片的字數上限
+TITLE_LIMIT = 256
+DESCRIPTION_LIMIT = 4096
+USERNAME_LIMIT = 80
+TRUNCATED_SUFFIX = '…（已截斷）'
 
 # 預設頭像：一條龍的應用圖示，放在本插件 GitHub 倉庫的 assets/avatar.png。
 DEFAULT_AVATAR_URL = 'https://raw.githubusercontent.com/moonlight0XD/zzzod-discord-push/main/assets/avatar.png'
@@ -85,47 +92,26 @@ class DiscordWebhook(PushChannel):
             proxies = self.get_proxy(proxy_url)
 
             image_data = self.image_to_bytes(image) if image is not None else None
+            embed: dict = {
+                'title': _truncate(title, TITLE_LIMIT),
+                'description': _truncate(content, DESCRIPTION_LIMIT),
+            }
             if image_data is not None:
-                payload: dict = {
-                    'embeds': [{
-                        'title': title,
-                        'description': content,
-                        'thumbnail': {'url': 'attachment://screenshot.jpg'},
-                    }],
-                }
-            else:
-                payload = {
-                    'embeds': [{
-                        'title': title,
-                        'description': content,
-                    }],
-                }
+                embed['thumbnail'] = {'url': 'attachment://screenshot.jpg'}
+            payload: dict = {'embeds': [embed]}
 
             username = config.get('USERNAME', '').strip()
             if username:
-                payload['username'] = username
+                payload['username'] = username[:USERNAME_LIMIT]
             payload['avatar_url'] = config.get('AVATAR_URL', '').strip() or DEFAULT_AVATAR_URL
 
-            headers = {'User-Agent': 'OneDragon'}
-            if image_data is not None:
-                image_data.seek(0)
-                response = requests.post(
-                    url,
-                    headers=headers,
-                    data={'payload_json': json.dumps(payload, ensure_ascii=False)},
-                    files={'files[0]': ('screenshot.jpg', image_data, 'image/jpeg')},
-                    proxies=proxies,
-                    timeout=30,
-                )
-            else:
-                headers['Content-Type'] = 'application/json'
-                response = requests.post(
-                    url,
-                    headers=headers,
-                    data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
-                    proxies=proxies,
-                    timeout=30,
-                )
+            response = self._send(url, payload, image_data, proxies)
+            if response.status_code == 429:
+                # 發太快被 Discord 限流：照它給的等待時間等一下，再重送一次
+                time.sleep(_retry_after_seconds(response))
+                response = self._send(url, payload, image_data, proxies)
+                if response.status_code == 429:
+                    return False, 'Discord Webhook 推送失敗(429)：發送太頻繁，請稍後再試'
 
             if response.status_code in (401, 404):
                 return False, f'Discord Webhook 推送失敗({response.status_code})：Webhook 網址無效或已被刪除'
@@ -134,6 +120,49 @@ class DiscordWebhook(PushChannel):
         except Exception as e:
             log.error('Discord Webhook 推送異常', exc_info=True)
             return False, f'Discord Webhook 推送異常: {str(e)}'
+
+    @staticmethod
+    def _send(url: str, payload: dict, image_data, proxies) -> requests.Response:
+        headers = {'User-Agent': 'OneDragon'}
+        if image_data is not None:
+            image_data.seek(0)
+            return requests.post(
+                url,
+                headers=headers,
+                data={'payload_json': json.dumps(payload, ensure_ascii=False)},
+                files={'files[0]': ('screenshot.jpg', image_data, 'image/jpeg')},
+                proxies=proxies,
+                timeout=30,
+            )
+        headers['Content-Type'] = 'application/json'
+        return requests.post(
+            url,
+            headers=headers,
+            data=json.dumps(payload, ensure_ascii=False).encode('utf-8'),
+            proxies=proxies,
+            timeout=30,
+        )
+
+
+def _truncate(text: str, limit: int) -> str:
+    """超過 Discord 上限時截短，避免整則通知被拒收。"""
+    text = text or ''
+    if len(text) <= limit:
+        return text
+    return text[:limit - len(TRUNCATED_SUFFIX)] + TRUNCATED_SUFFIX
+
+
+def _retry_after_seconds(response: requests.Response) -> float:
+    """讀取 Discord 429 回應要求的等待秒數，限制在 0.5～10 秒之間。"""
+    seconds = 2.0
+    try:
+        seconds = float(response.json()['retry_after'])
+    except Exception:
+        try:
+            seconds = float(response.headers.get('Retry-After', seconds))
+        except (TypeError, ValueError):
+            pass
+    return min(max(seconds, 0.5), 10.0)
 
 
 def _has_channel(service: PushService) -> bool:
