@@ -1,0 +1,15 @@
+name: Validate Plugin
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    if: github.repository != 'OneDragon-Anyone/plugin-template'
+    uses: OneDragon-Anyone/plugin-template/.github/workflows/reusable-validate.yml@v1
