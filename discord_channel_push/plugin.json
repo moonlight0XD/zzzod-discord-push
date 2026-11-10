@@ -1,7 +1,7 @@
 {
   "id": "discord_channel_push",
   "name": "Discord 頻道推送",
-  "summary": "新增「Discord Webhook」通知方式：貼上頻道 Webhook 網址，就能把附截圖縮圖的通知發到 Discord 頻道，不需要機器人；同時為「Discord 機器人」加上選填的頻道 ID。",
+  "summary": "新增「Discord Webhook」通知方式：貼上頻道 Webhook 網址，就能把附截圖縮圖的通知發到 Discord 頻道，不需要機器人。",
   "version": "1.0.0",
   "versionCode": 1,
   "author": {
