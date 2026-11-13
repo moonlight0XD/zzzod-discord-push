@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import json
+import re
 import time
+import urllib.parse
 from typing import TYPE_CHECKING
 
 import requests
@@ -22,14 +24,20 @@ if TYPE_CHECKING:
 
 CHANNEL_ID = 'DISCORD_WEBHOOK'
 
+# 只接受 Discord 官方網域
+ALLOWED_WEBHOOK_HOSTS = frozenset({
+    'discord.com', 'ptb.discord.com', 'canary.discord.com',
+    'discordapp.com', 'ptb.discordapp.com', 'canary.discordapp.com',
+})
+_WEBHOOK_PATH = re.compile(r'/api(?:/v\d+)?/webhooks/\d+/[\w-]+/?')
+_WEBHOOK_URL_IN_TEXT = re.compile(r'(/webhooks/\d+/)[\w-]+')
+
 # Discord 卡片的字數上限
 TITLE_LIMIT = 256
 DESCRIPTION_LIMIT = 4096
 USERNAME_LIMIT = 80
 TRUNCATED_SUFFIX = '…（已截斷）'
 
-# 預設頭像：一條龍的應用圖示，放在本插件 GitHub 倉庫的 assets/avatar.png。
-DEFAULT_AVATAR_URL = 'https://raw.githubusercontent.com/moonlight0XD/zzzod-discord-push/main/assets/avatar.png'
 _PATCH_MARK = '_od_discord_webhook_patch_original_init'
 
 
@@ -57,7 +65,7 @@ class DiscordWebhook(PushChannel):
                 title='頭像網址',
                 icon='PHOTO',
                 field_type=FieldTypeEnum.TEXT,
-                placeholder='選填，留空則使用一條龍的應用圖示',
+                placeholder='選填，留空則使用 Webhook 自己的頭像',
             ),
         ]
         PushChannel.__init__(
@@ -71,8 +79,8 @@ class DiscordWebhook(PushChannel):
         url = config.get('URL', '').strip()
         if not url:
             return False, 'Webhook 網址不能為空'
-        if not url.startswith('https://') or '/api/webhooks/' not in url:
-            return False, 'Webhook 網址格式不正確，應以 https://discord.com/api/webhooks/ 開頭'
+        if not _is_discord_webhook_url(url):
+            return False, 'Webhook 網址格式不正確，只接受 Discord 官方網址：https://discord.com/api/webhooks/…'
         return True, '設定驗證通過'
 
     def push(
@@ -103,7 +111,9 @@ class DiscordWebhook(PushChannel):
             username = config.get('USERNAME', '').strip()
             if username:
                 payload['username'] = username[:USERNAME_LIMIT]
-            payload['avatar_url'] = config.get('AVATAR_URL', '').strip() or DEFAULT_AVATAR_URL
+            avatar_url = config.get('AVATAR_URL', '').strip()
+            if avatar_url:
+                payload['avatar_url'] = avatar_url
 
             response = self._send(url, payload, image_data, proxies)
             if response.status_code == 429:
@@ -113,13 +123,18 @@ class DiscordWebhook(PushChannel):
                 if response.status_code == 429:
                     return False, 'Discord Webhook 推送失敗(429)：發送太頻繁，請稍後再試'
 
+            # 只回報狀態碼，不使用 raise_for_status()：它的錯誤訊息會帶完整 Webhook 網址
             if response.status_code in (401, 404):
                 return False, f'Discord Webhook 推送失敗({response.status_code})：Webhook 網址無效或已被刪除'
-            response.raise_for_status()
+            if not 200 <= response.status_code < 300:
+                return False, f'Discord Webhook 推送失敗(HTTP {response.status_code})'
             return True, '推送成功'
         except Exception as e:
-            log.error('Discord Webhook 推送異常', exc_info=True)
-            return False, f'Discord Webhook 推送異常: {str(e)}'
+            # Webhook 網址就是頻道的發文金鑰：例外訊息與 traceback 可能帶完整網址，
+            # 所以不記錄 traceback、不回傳 str(e)，只留例外類型；萬一還有網址也打碼。
+            reason = _mask_webhook_urls(type(e).__name__)
+            log.error(f'Discord Webhook 推送異常：{reason}')
+            return False, f'Discord Webhook 推送異常：{reason}'
 
     @staticmethod
     def _send(url: str, payload: dict, image_data, proxies) -> requests.Response:
@@ -142,6 +157,26 @@ class DiscordWebhook(PushChannel):
             proxies=proxies,
             timeout=30,
         )
+
+
+def _is_discord_webhook_url(url: str) -> bool:
+    """只接受 Discord 官方網域的 Webhook 網址，避免通知和截圖被送到其他伺服器。"""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == 'https'
+        and (parsed.hostname or '') in ALLOWED_WEBHOOK_HOSTS
+        and parsed.port is None
+        and parsed.username is None
+        and _WEBHOOK_PATH.fullmatch(parsed.path) is not None
+    )
+
+
+def _mask_webhook_urls(text: str) -> str:
+    """把文字中的 Webhook 金鑰打碼。"""
+    return _WEBHOOK_URL_IN_TEXT.sub(r'\1***', text)
 
 
 def _truncate(text: str, limit: int) -> str:
