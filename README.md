@@ -2,6 +2,10 @@
 
 絕區零一條龍插件。讓通知直接發到 Discord **頻道**，並附上遊戲截圖縮圖。
 
+## 效果
+
+<img src="docs/preview.png" alt="Discord 頻道中的一條龍通知：每則任務一張卡片，右側附遊戲截圖縮圖" width="420">
+
 ## 功能
 
 - **新增「Discord Webhook」通知方式**：不需要機器人，貼上頻道的 Webhook 網址就能用。
